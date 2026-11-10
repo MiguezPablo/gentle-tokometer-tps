@@ -10,34 +10,34 @@ Every number in that line is defined below, and `/tokometer` changes which ones 
 
 ## Install
 
-With Gentle Shell, pinned to the release (recommended):
+With Gentle Shell (recommended, simplest — it is on npm):
+
+```bash
+gentle-shell install npm:gentle-tokometer-tps
+```
+
+Pin the release with `npm:gentle-tokometer-tps@0.1.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
 
 ```bash
 gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
-```
-
-Or track `main`, which also picks up unreleased changes:
-
-```bash
 gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
 Without Gentle Shell, Pi's own `install` takes the same sources:
 
 ```bash
+pi install npm:gentle-tokometer-tps
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
 # or track main
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
-A pinned `@v0.1.0` stays on that release until you install again; the unpinned form follows `main`. Reload (`/reload`, or start a new session) after installing so the extension loads.
-
-npm (`npm:gentle-tokometer-tps`) is coming soon.
+Without a version, an install takes the latest release and `pi update` moves it forward; `@0.1.0` on npm and `@v0.1.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
 
 Try it once without installing:
 
 ```bash
-pi -e git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
+pi -e npm:gentle-tokometer-tps
 ```
 
 The extension loads from `extensions/gentle-tokometer-tps.ts` (see the `pi` key in `package.json`).
