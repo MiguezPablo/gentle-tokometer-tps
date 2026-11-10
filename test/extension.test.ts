@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import extension from "../extensions/gentle-tokometer-tps.ts";
+import { CONFIG_FILE_NAME, DEFAULT_CONFIG, getConfig, setConfig, type TokometerConfig } from "../src/config.ts";
 import { ENTRY_TYPE, LEGACY_ENTRY_TYPES, formatTurnStats, type TurnStats } from "../src/format.ts";
 
 type Handler = (event: unknown, ctx: unknown) => void;
@@ -33,15 +37,27 @@ const tuiContext = { mode: "tui" };
 
 /**
  * Loads the extension with a fake Pi API and without the subagent marker, so the
- * wiring runs the same way it does in a parent agent. The previous env value is
- * restored after the test.
+ * wiring runs the same way it does in a parent agent. The extension resolves its
+ * config from Pi's agent dir, so `PI_CODING_AGENT_DIR` points at a throwaway
+ * directory: the real agent dir is never read or written. Previous env values are
+ * restored and the throwaway directory removed after the test.
  */
-function loadExtension(t: { after(fn: () => void): void }) {
+function loadExtension(t: { after(fn: () => void): void }, config?: unknown) {
+	const agentDir = mkdtempSync(join(tmpdir(), "tokometer-agent-"));
+	if (config !== undefined) writeFileSync(join(agentDir, CONFIG_FILE_NAME), JSON.stringify(config));
+
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	const previous = process.env.GENTLE_PI_AGENTS_CHILD;
+	process.env.PI_CODING_AGENT_DIR = agentDir;
 	delete process.env.GENTLE_PI_AGENTS_CHILD;
 	t.after(() => {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		if (previous !== undefined) process.env.GENTLE_PI_AGENTS_CHILD = previous;
+		setConfig(DEFAULT_CONFIG);
+		rmSync(agentDir, { recursive: true, force: true });
 	});
+
 	const fake = createFakePi();
 	extension(fake.pi);
 	return fake;
@@ -86,6 +102,7 @@ test("appends one gentle-tokometer-tps entry with the run stats", (t) => {
 				cacheWrite: 5,
 				total: 165,
 				streamMs: 1_100,
+				e2eMs: 1_400,
 				wallMs: 2_000,
 				ttftMs: 800,
 			},
@@ -109,10 +126,44 @@ test("counts tokens but no stream time for a message without deltas", (t) => {
 	assert.equal(entries.length, 1);
 	const data = entries[0]!.data as TurnStats;
 	assert.equal(data.streamMs, 0);
+	assert.equal(data.e2eMs, 750);
 	assert.equal(data.total, 15);
 	assert.equal(data.ttftMs, undefined);
 	assert.equal(data.wallMs, 1_000);
 	assert.equal(formatTurnStats(data), "TPS - tok/s. TTFT -, out 12, in 3, cache r/w 0/0 (0.0% hit), total 15, 1.0s");
+});
+
+test("sums the e2e time of every assistant message", (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: 0 });
+	const { handlers, entries } = loadExtension(t);
+
+	emit(handlers, "agent_start", {});
+	// First message: 1200ms end to end, 700ms of it streaming.
+	t.mock.timers.tick(200);
+	emit(handlers, "message_start", { message: assistantMessage(undefined) });
+	t.mock.timers.tick(500);
+	emit(handlers, "message_update", { assistantMessageEvent: { type: "text_delta", delta: "a" } });
+	t.mock.timers.tick(700);
+	emit(handlers, "message_end", {
+		message: assistantMessage({ output: 10, input: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15 }),
+	});
+	// A tool runs outside any message: it counts for wall time only.
+	t.mock.timers.tick(3_000);
+	// Second message: 900ms end to end, 400ms of it streaming.
+	emit(handlers, "message_start", { message: assistantMessage(undefined) });
+	t.mock.timers.tick(500);
+	emit(handlers, "message_update", { assistantMessageEvent: { type: "thinking_delta", delta: "b" } });
+	t.mock.timers.tick(400);
+	emit(handlers, "message_end", {
+		message: assistantMessage({ output: 20, input: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 25 }),
+	});
+	emit(handlers, "agent_end", {});
+
+	assert.equal(entries.length, 1);
+	const data = entries[0]!.data as TurnStats;
+	assert.equal(data.streamMs, 1_100);
+	assert.equal(data.e2eMs, 2_100);
+	assert.equal(data.wallMs, 5_300);
 });
 
 test("does not append an entry when the run totals zero tokens", (t) => {
@@ -167,6 +218,66 @@ test("renders stored entries of either type with the same dim line", (t) => {
 		assert.equal(rendered.text, expected);
 		assert.equal(renderers.get(type)!({}, {}, theme), undefined);
 	}
+});
+
+test("renders already stored entries with the config in effect at render time", (t) => {
+	setConfig(DEFAULT_CONFIG);
+	const { renderers } = loadExtension(t);
+	const stats: TurnStats = {
+		output: 470,
+		input: 1900,
+		cacheRead: 425700,
+		cacheWrite: 0,
+		total: 428100,
+		streamMs: 24227,
+		e2eMs: 31333,
+		wallMs: 24200,
+		ttftMs: 1200,
+	};
+
+	for (const type of [ENTRY_TYPE, ...LEGACY_ENTRY_TYPES]) {
+		const renderer = renderers.get(type);
+		assert.ok(renderer, `expected a renderer for ${type}`);
+		assert.equal(
+			renderer({ data: stats }, {}, theme)?.text,
+			"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+		);
+
+		setConfig({ ttft: false, hit: false, tps: "e2e" });
+		assert.equal(getConfig().tps, "e2e");
+		assert.equal(
+			renderer({ data: stats }, {}, theme)?.text,
+			"TPS(e2e) 15.0 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
+		);
+		setConfig(DEFAULT_CONFIG);
+	}
+});
+
+test("loads the config file from the agent dir when the extension loads", (t) => {
+	const { renderers } = loadExtension(t, { ttft: false, hit: false, tps: "wall" });
+	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "wall" });
+
+	const stats: TurnStats = {
+		output: 470,
+		input: 1900,
+		cacheRead: 425700,
+		cacheWrite: 0,
+		total: 428100,
+		streamMs: 24227,
+		e2eMs: 31333,
+		wallMs: 24200,
+		ttftMs: 1200,
+	};
+	assert.equal(
+		renderers.get(ENTRY_TYPE)!({ data: stats }, {}, theme)?.text,
+		"TPS(wall) 19.4 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
+	);
+});
+
+test("falls back to the defaults when the stored config is unusable", (t) => {
+	const { renderers } = loadExtension(t, { ttft: "nope", hit: 1, tps: "fastest" });
+	assert.deepEqual(getConfig(), DEFAULT_CONFIG);
+	assert.ok(renderers.has(ENTRY_TYPE));
 });
 
 test("does nothing in subagent children", (t) => {

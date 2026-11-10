@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { DEFAULT_CONFIG } from "../src/config.ts";
 import { formatTurnStats, type TurnStats } from "../src/format.ts";
 
 const base: TurnStats = {
@@ -76,4 +77,82 @@ test("computes the cache hit rate over input, cache read and cache write", () =>
 		ttftMs: 500,
 	});
 	assert.ok(line.includes("(60.0% hit)"), line);
+});
+
+const reference: TurnStats = {
+	output: 470,
+	input: 1900,
+	cacheRead: 425700,
+	cacheWrite: 0,
+	total: 428100,
+	streamMs: 24227,
+	e2eMs: 31333,
+	wallMs: 24200,
+	ttftMs: 1200,
+};
+
+test("defaults to the reference line when no config is given", () => {
+	assert.equal(
+		formatTurnStats(reference),
+		"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+	);
+	assert.equal(formatTurnStats(reference, DEFAULT_CONFIG), formatTurnStats(reference));
+});
+
+test("drops the TTFT segment when the ttft toggle is off", () => {
+	assert.equal(
+		formatTurnStats(reference, { ...DEFAULT_CONFIG, ttft: false }),
+		"TPS 19.4 tok/s. out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+	);
+	// The toggle removes the segment even when TTFT is missing instead of leaving a dash.
+	const withoutTtft = { ...reference, ttftMs: undefined };
+	assert.equal(
+		formatTurnStats(withoutTtft, { ...DEFAULT_CONFIG, ttft: false }),
+		"TPS 19.4 tok/s. out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+	);
+});
+
+test("drops the hit percentage when the hit toggle is off", () => {
+	assert.equal(
+		formatTurnStats(reference, { ...DEFAULT_CONFIG, hit: false }),
+		"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
+	);
+});
+
+test("labels the end-to-end TPS mode and divides by the e2e time", () => {
+	assert.equal(
+		formatTurnStats(reference, { ...DEFAULT_CONFIG, tps: "e2e" }),
+		"TPS(e2e) 15.0 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+	);
+});
+
+test("labels the wall-clock TPS mode and divides by the run duration", () => {
+	const stats: TurnStats = { ...reference, output: 300, wallMs: 24800 };
+	assert.equal(
+		formatTurnStats(stats, { ...DEFAULT_CONFIG, tps: "wall" }),
+		"TPS(wall) 12.1 tok/s. TTFT 1.2s, out 300, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.8s",
+	);
+});
+
+test("displays a dash when the chosen TPS mode has no time", () => {
+	const { e2eMs: _omitted, ...withoutE2e } = reference;
+	const tail = "TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s";
+
+	assert.equal(formatTurnStats(withoutE2e, { ...DEFAULT_CONFIG, tps: "e2e" }), `TPS(e2e) - tok/s. ${tail}`);
+	assert.equal(
+		formatTurnStats({ ...reference, e2eMs: 0 }, { ...DEFAULT_CONFIG, tps: "e2e" }),
+		`TPS(e2e) - tok/s. ${tail}`,
+	);
+	assert.equal(
+		formatTurnStats({ ...reference, wallMs: 0 }, { ...DEFAULT_CONFIG, tps: "wall" }),
+		"TPS(wall) - tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 0.0s",
+	);
+});
+
+test("combines both toggles off with a labelled TPS mode", () => {
+	const stats: TurnStats = { ...reference, output: 300, wallMs: 24800 };
+	assert.equal(
+		formatTurnStats(stats, { ttft: false, hit: false, tps: "wall" }),
+		"TPS(wall) 12.1 tok/s. out 300, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.8s",
+	);
 });
