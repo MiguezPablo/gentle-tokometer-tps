@@ -1,6 +1,6 @@
 # gentle-tokometer-tps
 
-A Pi extension that prints one dim line under every agent turn with output speed, latency and token usage:
+A Pi extension that leaves one persistent line per finished turn in the transcript — TPS with three selectable measurement modes, TTFT, input/output tokens, cache read/write with hit %, total and wall time. It is a per-turn summary, not a live meter: there is no continuously updating display, and the numbers are written once, never sent to the model, and survive a reload.
 
 ```text
 TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s
@@ -10,16 +10,34 @@ Every number in that line is defined below, and `/tokometer` changes which ones 
 
 ## Install
 
+With Gentle Shell, pinned to the release (recommended):
+
 ```bash
-pi install npm:gentle-tokometer-tps
-# or straight from the repository
+gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
+```
+
+Or track `main`, which also picks up unreleased changes:
+
+```bash
+gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps
+```
+
+Without Gentle Shell, Pi's own `install` takes the same sources:
+
+```bash
+pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
+# or track main
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
+
+A pinned `@v0.1.0` stays on that release until you install again; the unpinned form follows `main`. Reload (`/reload`, or start a new session) after installing so the extension loads.
+
+npm (`npm:gentle-tokometer-tps`) is coming soon.
 
 Try it once without installing:
 
 ```bash
-pi -e npm:gentle-tokometer-tps
+pi -e git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
 ```
 
 The extension loads from `extensions/gentle-tokometer-tps.ts` (see the `pi` key in `package.json`).
