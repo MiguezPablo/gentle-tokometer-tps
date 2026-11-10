@@ -2,22 +2,26 @@
  * Tokometer TPS: after each agent run, shows a dim line in the transcript with
  * output speed and token usage, e.g.
  *
- *   TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s
+ *   TPS 15.0 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s
  *
  * Token counts below 1,000 stay exact; larger counts use k with at most one decimal.
  *
  * Three TPS modes are stored, and the configured one is displayed with its own
- * label: `TPS …` (stream, the default), `TPS(e2e) …` and `TPS(wall) …`. All divide
- * the turn's output tokens by a different window:
+ * label: `TPS …` (e2e, the default, no parenthesis), `TPS(stream) …` and
+ * `TPS(wall) …`. All divide the turn's output tokens by a different window:
+ * - e2e: time assistant messages spent from message_start to message_end, so the
+ *   wait for each request's first token is included.
  * - stream: time assistant messages spent streaming, measured per message from its
  *   first nonempty text/thinking/tool-call delta to message_end. Neither tool
  *   execution nor each message's wait for its first token dilutes it; a message
- *   with no nonempty delta adds tokens but no time.
- * - e2e: time assistant messages spent from message_start to message_end, so the
- *   wait for each request's first token is included.
+ *   with no nonempty delta adds tokens but no time. It overstates speed whenever a
+ *   provider hides thinking, because the hidden reasoning arrives as one burst of
+ *   deltas near message_end, which is why e2e is the default.
  * - wall: the wall-clock duration of the whole run, including tool execution.
- * A mode whose window is zero or absent from the entry (older entries have no e2e
- * time) displays a dash.
+ * In e2e mode an entry without e2e time (turn-stats entries and entries written
+ * before 0.2.0) shows the stream value under the `TPS(stream)` label instead of a
+ * dash; an entry whose window is present but zero, or whose fallback window is
+ * zero, displays a dash.
  *
  * TTFT measures agent_start to the first nonempty text/thinking/tool-call delta.
  * It is run-level latency, including initial preparation, not HTTP-only latency.
@@ -36,7 +40,8 @@
  * The trailing time is the wall-clock duration of the whole run.
  * The line is stored with appendEntry, so it is never sent to the model.
  * Entries written by earlier versions under the legacy entry type keep rendering
- * with the same line.
+ * with the same line, except that in the default e2e mode they show their stream
+ * value labelled `TPS(stream)`, since they store no e2e time.
  */
 
 import {

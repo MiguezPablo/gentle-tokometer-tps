@@ -5,7 +5,7 @@
  * share this module.
  */
 
-import { isTpsMode, normalizeConfig, type TokometerConfig } from "./config.ts";
+import { TPS_MODES, isTpsMode, normalizeConfig, type TokometerConfig } from "./config.ts";
 
 /** Settings the command can change. */
 export type SettingId = "ttft" | "hit" | "tps";
@@ -44,11 +44,11 @@ export const SETTINGS: readonly SettingSpec[] = [
 	{
 		id: "tps",
 		label: "TPS mode",
-		values: ["stream", "e2e", "wall"],
+		values: [...TPS_MODES],
 		describe: (value) => {
-			if (value === "e2e") return "Out over message_start to message_end per message: includes each request's first-token wait.";
+			if (value === "e2e") return "Out over message_start to message_end per message: includes each request's first-token wait. Default.";
 			if (value === "wall") return "Out over the whole run's wall time: includes tool execution.";
-			return "Out over each message's first delta to message_end: pure decode speed.";
+			return "Out over each message's first delta to message_end: pure decode speed, overstated when a provider hides thinking.";
 		},
 	},
 ];

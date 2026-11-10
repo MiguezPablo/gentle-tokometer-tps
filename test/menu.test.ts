@@ -58,7 +58,7 @@ test("shows the current value of every setting in the menu rows", () => {
 			["tps", "TPS mode", "e2e"],
 		],
 	);
-	assert.deepEqual(rows.map((row) => row.values), [["on", "off"], ["on", "off"], ["stream", "e2e", "wall"]]);
+	assert.deepEqual(rows.map((row) => row.values), [["on", "off"], ["on", "off"], ["e2e", "stream", "wall"]]);
 });
 
 test("describes each TPS mode with its own measurement window", () => {
@@ -66,8 +66,17 @@ test("describes each TPS mode with its own measurement window", () => {
 	assert.match(describe("stream"), /first delta to message_end/);
 	assert.match(describe("e2e"), /message_start to message_end/);
 	assert.match(describe("e2e"), /first-token wait/);
+	assert.match(describe("e2e"), /default/i);
 	assert.match(describe("wall"), /wall time/);
 	assert.match(describe("wall"), /tool execution/);
+});
+
+test("presents e2e as the default, first TPS value", () => {
+	assert.equal(DEFAULT_CONFIG.tps, "e2e");
+	assert.deepEqual(SETTINGS.find((spec) => spec.id === "tps")!.values, ["e2e", "stream", "wall"]);
+	const rows = settingRows(DEFAULT_CONFIG);
+	assert.equal(rows.find((row) => row.id === "tps")!.currentValue, "e2e");
+	assert.match(rows.find((row) => row.id === "tps")!.description, /default/i);
 });
 
 test("summarizes the config in effect for the non-interactive notification", () => {

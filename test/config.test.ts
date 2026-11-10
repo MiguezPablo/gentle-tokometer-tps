@@ -21,8 +21,8 @@ async function scratch(t: { after(fn: () => Promise<void>): void }): Promise<str
 	return dir;
 }
 
-test("defaults to ttft on, hit on and stream TPS", () => {
-	assert.deepEqual(DEFAULT_CONFIG, { ttft: true, hit: true, tps: "stream" });
+test("defaults to ttft on, hit on and e2e TPS", () => {
+	assert.deepEqual(DEFAULT_CONFIG, { ttft: true, hit: true, tps: "e2e" });
 });
 
 test("uses the defaults when the config file is missing", async (t) => {
@@ -54,8 +54,9 @@ test("uses the defaults when the JSON is not an object", async (t) => {
 test("keeps valid fields and falls back per field on wrong types", async (t) => {
 	const dir = await scratch(t);
 	const path = join(dir, "partial.json");
-	await writeFile(path, JSON.stringify({ ttft: false, hit: "yes", tps: "e2e" }));
-	assert.deepEqual(loadConfig(path), { ttft: false, hit: true, tps: "e2e" });
+	await writeFile(path, JSON.stringify({ ttft: false, hit: "yes", tps: "stream" }));
+	// An explicitly stored mode wins over the new e2e default.
+	assert.deepEqual(loadConfig(path), { ttft: false, hit: true, tps: "stream" });
 });
 
 test("falls back on an unknown TPS mode", async (t) => {

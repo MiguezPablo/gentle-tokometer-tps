@@ -186,7 +186,7 @@ test("counts tokens but no stream time for a message without deltas", (t) => {
 	assert.equal(data.total, 15);
 	assert.equal(data.ttftMs, undefined);
 	assert.equal(data.wallMs, 1_000);
-	assert.equal(formatTurnStats(data), "TPS - tok/s. TTFT -, out 12, in 3, cache r/w 0/0 (0.0% hit), total 15, 1.0s");
+	assert.equal(formatTurnStats(data), "TPS 16.0 tok/s. TTFT -, out 12, in 3, cache r/w 0/0 (0.0% hit), total 15, 1.0s");
 });
 
 test("sums the e2e time of every assistant message", (t) => {
@@ -263,8 +263,9 @@ test("renders stored entries of either type with the same dim line", (t) => {
 		wallMs: 24200,
 		ttftMs: 1200,
 	};
+	// No e2e time stored: in the default e2e mode the line falls back to stream.
 	const expected =
-		"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s";
+		"TPS(stream) 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s";
 
 	for (const type of [ENTRY_TYPE, ...LEGACY_ENTRY_TYPES]) {
 		const renderer = renderers.get(type);
@@ -296,14 +297,14 @@ test("renders already stored entries with the config in effect at render time", 
 		assert.ok(renderer, `expected a renderer for ${type}`);
 		assert.equal(
 			renderLine(renderer({ data: stats }, {}, theme)),
-			"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+			"TPS 15.0 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
 		);
 
-		setConfig({ ttft: false, hit: false, tps: "e2e" });
-		assert.equal(getConfig().tps, "e2e");
+		setConfig({ ttft: false, hit: false, tps: "stream" });
+		assert.equal(getConfig().tps, "stream");
 		assert.equal(
 			renderLine(renderer({ data: stats }, {}, theme)),
-			"TPS(e2e) 15.0 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
+			"TPS(stream) 19.4 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
 		);
 		setConfig(DEFAULT_CONFIG);
 	}
@@ -325,7 +326,7 @@ test("re-formats a displayed line when the config changes after it was rendered"
 	const component = renderers.get(ENTRY_TYPE)!({ data: stats }, {}, theme)!;
 	assert.equal(
 		renderLine(component),
-		"TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
+		"TPS 15.0 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s",
 	);
 
 	setConfig({ ttft: false, hit: false, tps: "wall" });
@@ -384,23 +385,23 @@ test("opens the settings menu when run without arguments in the TUI", async (t) 
 	assert.match(rendered, /TTFT/);
 	assert.match(rendered, /Cache hit %/);
 	assert.match(rendered, /TPS mode/);
-	assert.match(rendered, /stream/);
+	assert.match(rendered, /e2e/);
 });
 
 test("applies and persists every setting from the arguments", async (t) => {
 	const { commands, agentDir } = loadExtension(t);
 	const { ctx, components, notifications } = createCommandContext();
 
-	for (const args of ["ttft off", "hit off", "tps e2e"]) {
+	for (const args of ["ttft off", "hit off", "tps stream"]) {
 		await commands.get("tokometer")!.handler(args, ctx);
 	}
 
-	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "e2e" });
-	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: false, tps: "e2e" });
+	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "stream" });
+	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: false, tps: "stream" });
 	assert.deepEqual(notifications, [
-		{ message: "Tokometer: TTFT off, cache hit % on, TPS mode stream", type: "info" },
-		{ message: "Tokometer: TTFT off, cache hit % off, TPS mode stream", type: "info" },
+		{ message: "Tokometer: TTFT off, cache hit % on, TPS mode e2e", type: "info" },
 		{ message: "Tokometer: TTFT off, cache hit % off, TPS mode e2e", type: "info" },
+		{ message: "Tokometer: TTFT off, cache hit % off, TPS mode stream", type: "info" },
 	]);
 	// Arguments never open the menu.
 	assert.deepEqual(components, []);
@@ -441,19 +442,19 @@ test("toggles every setting from the menu and persists each change", async (t) =
 
 	// Selected row is TTFT: space cycles on -> off.
 	menu.handleInput?.(" ");
-	assert.deepEqual(getConfig(), { ttft: false, hit: true, tps: "stream" });
-	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: true, tps: "stream" });
+	assert.deepEqual(getConfig(), { ttft: false, hit: true, tps: "e2e" });
+	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: true, tps: "e2e" });
 
 	// Down to Cache hit % and cycle it off.
 	menu.handleInput?.("\x1b[B");
 	menu.handleInput?.(" ");
-	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "stream" });
+	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "e2e" });
 
-	// Down to TPS mode and cycle stream -> e2e.
+	// Down to TPS mode and cycle e2e -> stream.
 	menu.handleInput?.("\x1b[B");
 	menu.handleInput?.(" ");
-	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "e2e" });
-	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: false, tps: "e2e" });
+	assert.deepEqual(getConfig(), { ttft: false, hit: false, tps: "stream" });
+	assert.deepEqual(storedConfig(agentDir), { ttft: false, hit: false, tps: "stream" });
 
 	// Each change invalidates the transcript and requests a redraw, so lines
 	// already on screen are re-formatted.
@@ -474,7 +475,7 @@ test("toggles every setting from the menu and persists each change", async (t) =
 	};
 	assert.equal(
 		renderLine(renderers.get(ENTRY_TYPE)!({ data: stats }, {}, theme)),
-		"TPS(e2e) 15.0 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
+		"TPS(stream) 19.4 tok/s. out 470, in 1.9k, cache r/w 425.7k/0, total 428.1k, 24.2s",
 	);
 });
 
@@ -502,7 +503,7 @@ test("keeps the change in memory and reports it when the settings cannot be save
 
 	await commands.get("tokometer")!.handler("hit off", ctx);
 
-	assert.deepEqual(getConfig(), { ttft: true, hit: false, tps: "stream" });
+	assert.deepEqual(getConfig(), { ttft: true, hit: false, tps: "e2e" });
 	assert.equal(notifications.length, 1);
 	assert.equal(notifications[0]!.type, "error");
 	assert.match(notifications[0]!.message, /could not save the settings/);

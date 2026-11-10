@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 export type TpsMode = "stream" | "e2e" | "wall";
 
 /** Valid TPS modes, in the order the command menu shows them. */
-export const TPS_MODES: readonly TpsMode[] = ["stream", "e2e", "wall"];
+export const TPS_MODES: readonly TpsMode[] = ["e2e", "stream", "wall"];
 
 /** Persistent user preferences for the tokometer line. */
 export interface TokometerConfig {
@@ -26,8 +26,12 @@ export interface TokometerConfig {
 	tps: TpsMode;
 }
 
-/** Configuration used when nothing is stored or a field is invalid. */
-export const DEFAULT_CONFIG: TokometerConfig = { ttft: true, hit: true, tps: "stream" };
+/**
+ * Configuration used when nothing is stored or a field is invalid. TPS defaults to
+ * e2e: stream overstates speed whenever a provider hides thinking, because the
+ * hidden reasoning arrives as one burst of deltas.
+ */
+export const DEFAULT_CONFIG: TokometerConfig = { ttft: true, hit: true, tps: "e2e" };
 
 /** File name inside Pi's agent directory. */
 export const CONFIG_FILE_NAME = "gentle-tokometer-tps.json";

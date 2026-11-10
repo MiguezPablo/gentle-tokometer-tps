@@ -3,7 +3,7 @@
 A Pi extension that leaves one persistent line per finished turn in the transcript — TPS with three selectable measurement modes, TTFT, input/output tokens, cache read/write with hit %, total and wall time. It is a per-turn summary, not a live meter: there is no continuously updating display, and the numbers are written once, never sent to the model, and survive a reload.
 
 ```text
-TPS 19.4 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s
+TPS 15.0 tok/s. TTFT 1.2s, out 470, in 1.9k, cache r/w 425.7k/0 (99.6% hit), total 428.1k, 24.2s
 ```
 
 Every number in that line is defined below, and `/tokometer` changes which ones you see and how TPS is measured.
@@ -16,10 +16,10 @@ With Gentle Shell (recommended, simplest — it is on npm):
 gentle-shell install npm:gentle-tokometer-tps
 ```
 
-Pin the release with `npm:gentle-tokometer-tps@0.1.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
+Pin the release with `npm:gentle-tokometer-tps@0.2.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
 
 ```bash
-gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
+gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.2.0
 gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
@@ -27,12 +27,12 @@ Without Gentle Shell, Pi's own `install` takes the same sources:
 
 ```bash
 pi install npm:gentle-tokometer-tps
-pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.1.0
+pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.2.0
 # or track main
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
-Without a version, an install takes the latest release and `pi update` moves it forward; `@0.1.0` on npm and `@v0.1.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
+Without a version, an install takes the latest release and `pi update` moves it forward; `@0.2.0` on npm and `@v0.2.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
 
 Try it once without installing:
 
@@ -50,7 +50,7 @@ Run `/tokometer` in the TUI to open a settings menu with one row per setting. En
 |---|---|---|
 | `TTFT` | `on` / `off` | Show or hide the `TTFT …` latency segment. |
 | `Cache hit %` | `on` / `off` | Show or hide the `(…% hit)` share of `cache r/w`; the cache numbers stay. |
-| `TPS mode` | `stream` / `e2e` / `wall` | Which time window output tokens are divided by (see below). Each mode has its own label: `TPS …`, `TPS(e2e) …`, `TPS(wall) …`. |
+| `TPS mode` | `e2e` (default) / `stream` / `wall` | Which time window output tokens are divided by (see below). The default `e2e` has no label parenthesis; the others are labelled `TPS(stream) …` and `TPS(wall) …`. |
 
 For scripting, the same settings are accepted as arguments:
 
@@ -68,8 +68,8 @@ Arguments apply the value, persist it and report the resulting config; an unknow
 
 | Segment | Formula |
 |---|---|
-| `TPS …` (stream, default) | `out / Σ(message_end − first nonempty delta)` per assistant message, in tok/s. Pure decoding speed: neither tool execution nor each request's wait for its first token dilutes it. |
-| `TPS(e2e) …` | `out / Σ(message_end − message_start)` per assistant message. Includes the wait for each request's first token. |
+| `TPS …` (e2e, default) | `out / Σ(message_end − message_start)` per assistant message, in tok/s. Includes the wait for each request's first token. |
+| `TPS(stream) …` | `out / Σ(message_end − first nonempty delta)` per assistant message. Pure decoding speed: neither tool execution nor each request's wait for its first token dilutes it. |
 | `TPS(wall) …` | `out / (agent_end − agent_start)`. Includes tool execution and everything else in the run. |
 | `TTFT` | `first nonempty text/thinking/tool-call delta − agent_start`. Run-level latency, including preparation, not HTTP-only latency. |
 | `out` / `in` | Provider output and input tokens for the run. |
@@ -78,7 +78,15 @@ Arguments apply the value, persist it and report the resulting config; an unknow
 | `total` | Provider total tokens for the run. |
 | trailing time | Wall-clock duration of the whole run, e.g. `24.2s`. |
 
-Counts below 1,000 are shown exactly; larger ones use `k` with at most one decimal. A value that is missing from the entry (older entries have no e2e time), a mode whose window is zero, or an empty cache input shows `-`. Thinking tokens count as output when the provider reports them that way.
+Counts below 1,000 are shown exactly; larger ones use `k` with at most one decimal. A mode whose window is zero, or an empty cache input, shows `-`. Thinking tokens count as output when the provider reports them that way.
+
+### Why e2e is the default
+
+`stream` measures how fast visible text arrives, not how fast the provider produced it. When a provider hides its reasoning (Claude, for example), the hidden thinking is billed as output but reaches the client as one burst of deltas near `message_end`, so the stream window collapses and `TPS(stream)` overstates the real speed. `e2e` starts at `message_start`, so hidden thinking is paid for in time and cannot inflate the number. `wall` includes tool execution and is the slowest, most conservative reading.
+
+### Entries without e2e time
+
+Entries stored before 0.2.0, and the legacy `turn-stats` entries, carry no e2e time. In the default `e2e` mode they render their stream value under the `TPS(stream)` label rather than a dash, so old sessions stay readable. An entry whose e2e time is present but zero still shows `TPS - tok/s.`; no fallback applies there.
 
 ## Settings file
 
@@ -92,18 +100,18 @@ Settings live in the Pi agent directory, in `gentle-tokometer-tps.json`:
 {
   "ttft": true,
   "hit": true,
-  "tps": "stream"
+  "tps": "e2e"
 }
 ```
 
-Those are the defaults. A missing, unreadable or malformed file, or an invalid field, falls back to the defaults one field at a time and never breaks the extension. If a change cannot be written, the extension reports it and the change still applies until the session ends.
+Those are the defaults (`tps: "e2e"` since 0.2.0; a file still saying `"stream"` is respected). A missing, unreadable or malformed file, or an invalid field, falls back to the defaults one field at a time and never breaks the extension. If a change cannot be written, the extension reports it and the change still applies until the session ends.
 
 ## Compatibility and behavior
 
-- Entries stored by earlier versions under the legacy `turn-stats` entry type keep rendering with the same line.
+- Entries stored by earlier versions under the legacy `turn-stats` entry type keep rendering; as they store no e2e time, the default mode shows their stream value labelled `TPS(stream)`.
 - The line is written as a session entry, so it is never sent to the model and it reappears when a session is resumed.
 - No line is shown in subagent child sessions, outside TUI mode, or for a run that reports zero tokens.
-- With the defaults the line is byte-for-byte the one the earlier `turn-stats` extension printed.
+- With the defaults the line keeps the earlier `turn-stats` numbers and format; the TPS segment is now measured end to end and labelled `TPS`.
 
 ## License
 
