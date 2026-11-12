@@ -115,8 +115,10 @@ resolve_root() {
 	esac
 }
 
-# Atomically points the symlink at $1, replacing whatever is there.
+# Atomically points the symlink at $1, replacing whatever is there. A real
+# file or directory at $LINK is left untouched and reported as a failure.
 repoint_link() {
+	[ -e "$LINK" ] && [ ! -L "$LINK" ] && return 1
 	tmp=$LINK.tmp.$$
 	ln -sfn "$1" "$tmp" 2>/dev/null || return 1
 	if mv -T "$tmp" "$LINK" 2>/dev/null; then
@@ -151,7 +153,7 @@ if [ -r "$REAL" ]; then
 fi
 if [ -n "$root" ] && [ -f "$root/package.json" ]; then
 	current=$(readlink "$LINK" 2>/dev/null) || current=
-	if [ "$current" != "$root" ]; then
+	if [ "$current" != "$root" ] && { [ -L "$LINK" ] || [ ! -e "$LINK" ]; }; then
 		tmp=$LINK.tmp.$$
 		if ln -sfn "$root" "$tmp" 2>/dev/null; then
 			mv -T "$tmp" "$LINK" 2>/dev/null || {
@@ -339,6 +341,10 @@ install_cmd() {
 
 	if [ -e "$WRAPPER" ] && ! is_wrapper "$WRAPPER"; then
 		fail "refusing to overwrite $WRAPPER: it is not the gentle-tps wrapper"
+	fi
+
+	if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
+		fail "refusing to use $LINK: it exists and is not a symlink"
 	fi
 
 	root=$(resolve_root "$real") || fail "could not resolve the gentle-pi root from $real"

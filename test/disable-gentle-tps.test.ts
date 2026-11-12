@@ -5,6 +5,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	readlinkSync,
 	rmSync,
@@ -288,6 +289,39 @@ test("the wrapper follows a moved installation and forwards arguments and exit c
 	assert.equal(result.stdout, "real-gentle-shell --version extra\n");
 	assert.equal(result.stderr, "");
 	assert.equal(readlinkSync(f.link), secondRoot);
+});
+
+test("install refuses a non-symlink at the link path and writes nothing", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	mkdirSync(join(f.link, "nested"), { recursive: true });
+	writeFileSync(join(f.link, "nested", "keep.txt"), "keep\n");
+	const settingsText = writeSettings(f.settings, { packages: ["npm:pi-mcp-adapter"] });
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "");
+	assert.equal(result.stderr, `disable-gentle-tps: refusing to use ${f.link}: it exists and is not a symlink\n`);
+	assert.deepEqual(readdirSync(f.link), ["nested"], "nothing is created inside the directory");
+	assert.equal(readFileSync(join(f.link, "nested", "keep.txt"), "utf8"), "keep\n", "the directory is untouched");
+	assert.equal(readFileSync(f.settings, "utf8"), settingsText, "the settings are unchanged");
+	assert.equal(existsSync(f.backup), false, "no backup is written");
+	assert.equal(existsSync(f.wrapper), false, "no wrapper is written");
+});
+
+test("the wrapper does not create a link inside a non-symlink at the link path", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	assert.equal(f.run("install").status, 0);
+	rmSync(f.link);
+	mkdirSync(f.link);
+
+	const result = f.runWrapper("--version");
+
+	assert.equal(result.status, 7);
+	assert.equal(result.stdout, "real-gentle-shell --version\n");
+	assert.deepEqual(readdirSync(f.link), [], "the wrapper leaves the directory empty");
 });
 
 test("install refuses to overwrite a foreign gentle-shell at the wrapper path", (t) => {
