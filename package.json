@@ -23,6 +23,7 @@
   "files": [
     "extensions",
     "src",
+    "scripts",
     "LICENSE",
     "README.md"
   ],

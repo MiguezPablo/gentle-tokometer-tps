@@ -42,6 +42,26 @@ pi -e npm:gentle-tokometer-tps
 
 The extension loads from `extensions/gentle-tokometer-tps.ts` (see the `pi` key in `package.json`).
 
+## Hide Gentle Shell's built-in TPS line
+
+Gentle Shell ships its own TPS printer: gentle-pi's `extensions/gentle-tps.ts` is always loaded by the launcher and has no toggle, so with this package installed the transcript shows two TPS lines. Pi cannot exclude one extension from a package it loads implicitly, so the only supported way out is a settings declaration that loads gentle-pi as a path package and excludes `extensions/gentle-tps.ts`. The launcher honours that declaration only while the declared directory is the gentle-pi installation it is actually running, and a pnpm global install changes that directory on every update.
+
+`scripts/disable-gentle-tps.sh` wires that up and keeps it valid across updates. Run it once (from a clone, or from the installed package):
+
+```bash
+sh scripts/disable-gentle-tps.sh
+# installed with Gentle Shell (in releases that include the script):
+sh ~/.gentle-shell/agent/npm/node_modules/gentle-tokometer-tps/scripts/disable-gentle-tps.sh
+```
+
+Then restart Gentle Shell (or run `/reload`). The script is idempotent and changes three things:
+
+- installs `~/.local/bin/gentle-shell`, a wrapper that repoints a stable symlink at the current gentle-pi root before every run and then execs the real launcher, so a package update cannot leave a stale path behind;
+- creates that symlink at `~/.gentle-shell/gentle-pi-current`;
+- adds a `packages` entry for the symlink with `extensions: ["!extensions/gentle-tps.ts"]` to `~/.gentle-shell/agent/settings.json`, backing the file up once to `settings.json.bak-gentle-tps`; it drops gentle-pi path entries (stale hashed installs and earlier symlinks) and also local path entries whose directory no longer exists, for any package, while keeping every other key and entry in order.
+
+The wrapper only runs if its directory comes before the real `gentle-shell` on `PATH` (the script warns when it does not). To undo, run the same script with `uninstall`: it removes the wrapper, the symlink and the settings entry, and keeps the backup. Override the paths with `GENTLE_TPS_WRAPPER_DIR`, `GENTLE_TPS_LINK` and `GENTLE_SHELL_AGENT_DIR`; `sh scripts/disable-gentle-tps.sh --help` lists the subcommands.
+
 ## Configure with `/tokometer`
 
 Run `/tokometer` in the TUI to open a settings menu with one row per setting. Enter or space cycles the row's value; every change applies immediately and is saved, including to lines already shown in the transcript.
