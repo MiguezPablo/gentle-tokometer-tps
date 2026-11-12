@@ -521,3 +521,49 @@ test("install replaces settings atomically, keeping a symlink and the file mode"
 	assert.deepEqual(tempEntries(dirname(f.settings)), [], "no temp file is left in the agent dir");
 	assert.deepEqual(tempEntries(realDir), [], "no temp file is left next to the link target");
 });
+
+test("install writes through a dangling settings symlink instead of replacing it", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	const realDir = join(f.home, "dotfiles");
+	const real = join(realDir, "settings.json");
+	mkdirSync(realDir);
+	symlinkSync(real, f.settings);
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 0);
+	assert.ok(lstatSync(f.settings).isSymbolicLink(), "the dangling settings.json symlink stays a symlink");
+	assert.equal(readlinkSync(f.settings), real, "the symlink keeps its target");
+	assert.ok(existsSync(real), "the link target is created");
+	assert.equal(
+		readFileSync(real, "utf8"),
+		`${JSON.stringify({ packages: [{ source: f.link, extensions: ["!extensions/gentle-tps.ts"] }] }, null, 2)}\n`,
+		"the link target holds the new settings",
+	);
+	assert.deepEqual(tempEntries(realDir), [], "no temp file is left next to the link target");
+});
+
+test("install fails cleanly when a dangling settings link points into a missing directory", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	const missingDir = join(f.home, "gone");
+	const real = join(missingDir, "settings.json");
+	symlinkSync(real, f.settings);
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "", "nothing is reported as installed");
+	assert.equal(
+		result.stderr,
+		`disable-gentle-tps: cannot write ${real}: ${missingDir} is not an existing directory (left unchanged)\n` +
+			`disable-gentle-tps: could not update ${f.settings}\n`,
+	);
+	assert.ok(lstatSync(f.settings).isSymbolicLink(), "the dangling symlink is untouched");
+	assert.equal(existsSync(real), false, "no settings file is created");
+	assert.equal(existsSync(f.wrapper), false, "the wrapper written by this run is removed");
+	assert.equal(existsSync(f.link), false, "the symlink written by this run is removed");
+	assert.equal(existsSync(f.backup), false, "no backup is written");
+	assert.deepEqual(tempEntries(dirname(f.settings)), [], "no temp file is left in the agent dir");
+});

@@ -243,6 +243,27 @@ function packageNameOf(dir) {
 	}
 }
 
+// Where the new settings go: through a settings.json symlink to its target, so
+// the link stays a link. A dangling link has no real path yet, so it is resolved
+// by hand and its target is created; a target directory that does not exist is
+// fatal before anything else is written.
+function writeTarget() {
+	let isLink = false;
+	try {
+		isLink = fs.lstatSync(settingsPath).isSymbolicLink();
+	} catch {}
+	if (!isLink) return settingsPath;
+	try {
+		return fs.realpathSync(settingsPath);
+	} catch {}
+	const target = path.resolve(path.dirname(settingsPath), fs.readlinkSync(settingsPath));
+	const dir = path.dirname(target);
+	if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+		die(`cannot write ${target}: ${dir} is not an existing directory (left unchanged)`);
+	}
+	return target;
+}
+
 let text = "";
 if (fs.existsSync(settingsPath)) {
 	try {
@@ -303,6 +324,7 @@ if (mode === "uninstall") {
 settings.packages = next;
 
 const output = `${JSON.stringify(settings, null, 2)}\n`;
+const target = output === text ? settingsPath : writeTarget();
 if (mode === "install" && text !== "" && !fs.existsSync(backupPath)) {
 	try {
 		fs.copyFileSync(settingsPath, backupPath);
@@ -313,15 +335,8 @@ if (mode === "install" && text !== "" && !fs.existsSync(backupPath)) {
 if (output !== text) {
 	// Replace the file atomically so an interrupted or out-of-space write can
 	// never leave truncated JSON behind: the new content goes to a temp file in
-	// the same directory, is fsynced, and is then renamed over the target. A
-	// symlinked settings.json is written through to its target so the link stays
-	// a link, and the target keeps its previous mode.
-	let target = settingsPath;
-	try {
-		if (fs.lstatSync(settingsPath).isSymbolicLink()) target = fs.realpathSync(settingsPath);
-	} catch {
-		// Missing or dangling: write the path itself.
-	}
+	// the target's directory, is fsynced, and is then renamed over the target,
+	// which keeps its previous mode.
 	let mode;
 	try {
 		mode = fs.statSync(target).mode & 0o777;
@@ -459,7 +474,10 @@ rollback_install() {
 		if mv -f "$PREV_WRAPPER" "$WRAPPER" 2>/dev/null; then
 			PREV_WRAPPER=
 		else
+			# Keep the snapshot: the warning points at it, so cleanup must not
+			# delete the only copy of the previous wrapper.
 			warn "cannot restore $WRAPPER from $PREV_WRAPPER"
+			PREV_WRAPPER=
 		fi
 	elif [ -e "$WRAPPER" ]; then
 		rm -f "$WRAPPER"
