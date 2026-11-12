@@ -16,10 +16,10 @@ With Gentle Shell (recommended, simplest — it is on npm):
 gentle-shell install npm:gentle-tokometer-tps
 ```
 
-Pin the release with `npm:gentle-tokometer-tps@0.2.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
+Pin the release with `npm:gentle-tokometer-tps@0.3.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
 
 ```bash
-gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.2.0
+gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.0
 gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
@@ -27,12 +27,12 @@ Without Gentle Shell, Pi's own `install` takes the same sources:
 
 ```bash
 pi install npm:gentle-tokometer-tps
-pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.2.0
+pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.0
 # or track main
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
-Without a version, an install takes the latest release and `pi update` moves it forward; `@0.2.0` on npm and `@v0.2.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
+Without a version, an install takes the latest release and `pi update` moves it forward; `@0.3.0` on npm and `@v0.3.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
 
 Try it once without installing:
 
@@ -50,7 +50,7 @@ Gentle Shell ships its own TPS printer: gentle-pi's `extensions/gentle-tps.ts` i
 
 ```bash
 sh scripts/disable-gentle-tps.sh
-# installed with Gentle Shell (in releases that include the script):
+# installed with Gentle Shell (0.3.0 and later):
 sh ~/.gentle-shell/agent/npm/node_modules/gentle-tokometer-tps/scripts/disable-gentle-tps.sh
 ```
 
