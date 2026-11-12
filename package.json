@@ -1,6 +1,6 @@
 {
   "name": "gentle-tokometer-tps",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pi extension that prints a dim TPS/TTFT/token-usage line under every agent turn.",
   "license": "MIT",
   "author": "Pablo Miguez",

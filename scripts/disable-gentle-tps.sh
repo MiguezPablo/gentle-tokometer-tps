@@ -48,6 +48,17 @@ warn() {
 	printf 'disable-gentle-tps: warning: %s\n' "$1" >&2
 }
 
+# Snapshot of the previous wrapper, kept in a side file while install runs and
+# removed on every exit path (a failed setting edit restores it first).
+PREV_WRAPPER=
+cleanup() {
+	if [ -n "$PREV_WRAPPER" ]; then
+		rm -f "$PREV_WRAPPER"
+		PREV_WRAPPER=
+	fi
+}
+trap cleanup EXIT
+
 # Absolute form of a path, relative to the current directory.
 absolutize() {
 	case $1 in
@@ -300,11 +311,53 @@ if (mode === "install" && text !== "" && !fs.existsSync(backupPath)) {
 	}
 }
 if (output !== text) {
+	// Replace the file atomically so an interrupted or out-of-space write can
+	// never leave truncated JSON behind: the new content goes to a temp file in
+	// the same directory, is fsynced, and is then renamed over the target. A
+	// symlinked settings.json is written through to its target so the link stays
+	// a link, and the target keeps its previous mode.
+	let target = settingsPath;
 	try {
-		fs.writeFileSync(settingsPath, output);
-	} catch (error) {
-		die(`cannot write ${settingsPath}: ${error.message}`);
+		if (fs.lstatSync(settingsPath).isSymbolicLink()) target = fs.realpathSync(settingsPath);
+	} catch {
+		// Missing or dangling: write the path itself.
 	}
+	let mode;
+	try {
+		mode = fs.statSync(target).mode & 0o777;
+	} catch {
+		mode = undefined;
+	}
+	const tmp = `${target}.tmp-${process.pid}`;
+	let fd;
+	try {
+		fd = fs.openSync(tmp, "w", mode ?? 0o666);
+		if (mode !== undefined) fs.fchmodSync(fd, mode);
+		fs.writeFileSync(fd, output);
+		fs.fsyncSync(fd);
+		fs.closeSync(fd);
+		fd = undefined;
+		fs.renameSync(tmp, target);
+	} catch (error) {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {}
+		}
+		try {
+			fs.unlinkSync(tmp);
+		} catch {}
+		die(`cannot write ${target}: ${error.message}`);
+	}
+	// Best effort: make the rename itself durable.
+	try {
+		const dir = fs.openSync(path.dirname(target), "r");
+		try {
+			fs.fsyncSync(dir);
+		} finally {
+			fs.closeSync(dir);
+		}
+	} catch {}
 }
 NODE
 }
@@ -351,13 +404,44 @@ install_cmd() {
 	[ -f "$root/package.json" ] || fail "$root has no package.json; is $real a gentle-shell shim?"
 
 	mkdir -p "$WRAPPER_DIR" || fail "cannot create $WRAPPER_DIR"
+
+	# Snapshot what this run is about to change, so a failed settings edit can
+	# put it back: a previous wrapper is copied to a side file, a previous
+	# symlink target is kept in PREV_LINK. Both stay empty when the run creates
+	# the path itself.
+	PREV_LINK=
+	if [ -e "$WRAPPER" ]; then
+		PREV_WRAPPER=$WRAPPER.prev-$$
+		cp -p "$WRAPPER" "$PREV_WRAPPER" || fail "cannot snapshot $WRAPPER"
+	else
+		PREV_WRAPPER=
+	fi
+	if [ -L "$LINK" ]; then
+		PREV_LINK=$(readlink "$LINK") || PREV_LINK=
+	fi
+
 	write_wrapper "$real"
 
-	mkdir -p "$(dirname "$LINK")" || fail "cannot create $(dirname "$LINK")"
-	repoint_link "$root" || fail "cannot point $LINK at $root"
+	mkdir -p "$(dirname "$LINK")" || {
+		rollback_install
+		fail "cannot create $(dirname "$LINK")"
+	}
+	repoint_link "$root" || {
+		rollback_install
+		fail "cannot point $LINK at $root"
+	}
 
-	mkdir -p "$AGENT_DIR" || fail "cannot create $AGENT_DIR"
-	edit_settings install || fail "could not update $SETTINGS"
+	mkdir -p "$AGENT_DIR" || {
+		rollback_install
+		fail "cannot create $AGENT_DIR"
+	}
+	edit_settings install
+	status=$?
+	if [ "$status" -ne 0 ]; then
+		rollback_install
+		fail "could not update $SETTINGS"
+	fi
+	cleanup
 
 	warn_path "$real"
 
@@ -367,7 +451,37 @@ install_cmd() {
 	printf 'disable-gentle-tps: restart gentle-shell (or run /reload) to hide the built-in TPS line\n'
 }
 
+# Undoes this run's wrapper and symlink changes after a failed settings edit.
+# A wrapper or symlink that existed before is restored as it was; one this run
+# created is removed. Nothing else is touched.
+rollback_install() {
+	if [ -n "$PREV_WRAPPER" ]; then
+		if mv -f "$PREV_WRAPPER" "$WRAPPER" 2>/dev/null; then
+			PREV_WRAPPER=
+		else
+			warn "cannot restore $WRAPPER from $PREV_WRAPPER"
+		fi
+	elif [ -e "$WRAPPER" ]; then
+		rm -f "$WRAPPER"
+	fi
+
+	if [ -n "$PREV_LINK" ]; then
+		repoint_link "$PREV_LINK" || warn "cannot point $LINK back at $PREV_LINK"
+	elif [ -L "$LINK" ]; then
+		rm -f "$LINK"
+	fi
+}
+
 uninstall_cmd() {
+	# Edit the settings first: a failed edit must leave the wrapper and the
+	# symlink in place, so the entry never points at a link already removed.
+	edit_settings uninstall
+	status=$?
+	case $status in
+		0 | 3) ;;
+		*) fail "could not update $SETTINGS" ;;
+	esac
+
 	if [ -e "$WRAPPER" ] || [ -L "$WRAPPER" ]; then
 		if is_wrapper "$WRAPPER"; then
 			rm -f "$WRAPPER" || fail "cannot remove $WRAPPER"
@@ -388,12 +502,9 @@ uninstall_cmd() {
 		printf 'disable-gentle-tps: no symlink at %s\n' "$LINK"
 	fi
 
-	edit_settings uninstall
-	status=$?
 	case $status in
 		0) printf 'disable-gentle-tps: removed the gentle-pi entry from %s (backup kept: %s)\n' "$SETTINGS" "$BACKUP" ;;
 		3) printf 'disable-gentle-tps: no gentle-pi entry in %s\n' "$SETTINGS" ;;
-		*) fail "could not update $SETTINGS" ;;
 	esac
 }
 

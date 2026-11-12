@@ -16,10 +16,10 @@ With Gentle Shell (recommended, simplest — it is on npm):
 gentle-shell install npm:gentle-tokometer-tps
 ```
 
-Pin the release with `npm:gentle-tokometer-tps@0.3.0`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
+Pin the release with `npm:gentle-tokometer-tps@0.3.1`. Alternatively install from git, pinned to the release or tracking `main` to also pick up unreleased changes:
 
 ```bash
-gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.0
+gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.1
 gentle-shell install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
@@ -27,12 +27,12 @@ Without Gentle Shell, Pi's own `install` takes the same sources:
 
 ```bash
 pi install npm:gentle-tokometer-tps
-pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.0
+pi install git:github.com/MiguezPablo/gentle-tokometer-tps@v0.3.1
 # or track main
 pi install git:github.com/MiguezPablo/gentle-tokometer-tps
 ```
 
-Without a version, an install takes the latest release and `pi update` moves it forward; `@0.3.0` on npm and `@v0.3.0` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
+Without a version, an install takes the latest release and `pi update` moves it forward; `@0.3.1` on npm and `@v0.3.1` on git stay pinned until you install again. Reload (`/reload`, or start a new session) after installing so the extension loads.
 
 Try it once without installing:
 
@@ -60,7 +60,7 @@ Then restart Gentle Shell (or run `/reload`). The script is idempotent and chang
 - creates that symlink at `~/.gentle-shell/gentle-pi-current`;
 - adds a `packages` entry for the symlink with `extensions: ["!extensions/gentle-tps.ts"]` to `~/.gentle-shell/agent/settings.json`, backing the file up once to `settings.json.bak-gentle-tps`; it drops gentle-pi path entries (stale hashed installs and earlier symlinks) and also local path entries whose directory no longer exists, for any package, while keeping every other key and entry in order.
 
-The wrapper only runs if its directory comes before the real `gentle-shell` on `PATH` (the script warns when it does not). To undo, run the same script with `uninstall`: it removes the wrapper, the symlink and the settings entry, and keeps the backup. Override the paths with `GENTLE_TPS_WRAPPER_DIR`, `GENTLE_TPS_LINK` and `GENTLE_SHELL_AGENT_DIR`; `sh scripts/disable-gentle-tps.sh --help` lists the subcommands.
+The wrapper only runs if its directory comes before the real `gentle-shell` on `PATH` (the script warns when it does not). `settings.json` is always replaced atomically, and a failed install or uninstall leaves the previous state in place. To undo, run the same script with `uninstall`: it removes the wrapper, the symlink and the settings entry, and keeps the backup. Override the paths with `GENTLE_TPS_WRAPPER_DIR`, `GENTLE_TPS_LINK` and `GENTLE_SHELL_AGENT_DIR`; `sh scripts/disable-gentle-tps.sh --help` lists the subcommands.
 
 ## Configure with `/tokometer`
 

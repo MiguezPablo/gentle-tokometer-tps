@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -10,6 +11,7 @@ import {
 	readlinkSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +50,11 @@ function writeSettings(path: string, value: unknown): string {
 	const text = `${JSON.stringify(value, null, 2)}\n`;
 	writeFileSync(path, text);
 	return text;
+}
+
+/** Names in `dir` that a settings write left behind, e.g. `settings.json.tmp-123`. */
+function tempEntries(dir: string): string[] {
+	return readdirSync(dir).filter((name) => name.includes(".tmp"));
 }
 
 /** A fake HOME with its own PATH, wrapper dir, agent dir and pnpm-style shim. */
@@ -426,4 +433,91 @@ test("--help prints usage and changes nothing", (t) => {
 	assert.match(result.stdout, /uninstall/);
 	assert.equal(result.stderr, "");
 	assert.equal(existsSync(f.wrapper), false);
+});
+
+test("install rolls back the wrapper and the symlink when the settings cannot be parsed", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	writeFileSync(f.settings, "{\n");
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "", "nothing is reported as installed");
+	assert.match(result.stderr, /cannot parse/);
+	assert.ok(result.stderr.endsWith(`disable-gentle-tps: could not update ${f.settings}\n`));
+	assert.equal(readFileSync(f.settings, "utf8"), "{\n", "the settings are byte-identical");
+	assert.equal(existsSync(f.wrapper), false, "the wrapper written by this run is removed");
+	assert.equal(existsSync(f.link), false, "the symlink written by this run is removed");
+	assert.equal(existsSync(f.backup), false, "no backup is written");
+	assert.deepEqual(tempEntries(dirname(f.settings)), [], "no temp file is left in the agent dir");
+	assert.deepEqual(readdirSync(f.wrapperDir), [], "no wrapper temp or snapshot file is left behind");
+});
+
+test("install keeps a previous wrapper and symlink when the settings cannot be parsed", (t) => {
+	const f = fixture(t);
+	const root = f.addShim("h1");
+	writeSettings(f.settings, { packages: ["npm:pi-mcp-adapter"] });
+	assert.equal(f.run("install").status, 0);
+	const wrapperText = readFileSync(f.wrapper, "utf8");
+	const backupText = readFileSync(f.backup, "utf8");
+	writeFileSync(f.settings, "{\n");
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "");
+	assert.equal(readFileSync(f.wrapper, "utf8"), wrapperText, "the previous wrapper is unchanged");
+	assert.equal(readlinkSync(f.link), root, "the previous symlink target is unchanged");
+	assert.equal(readFileSync(f.settings, "utf8"), "{\n", "the settings are byte-identical");
+	assert.equal(readFileSync(f.backup, "utf8"), backupText, "the backup is unchanged");
+	assert.deepEqual(tempEntries(dirname(f.settings)), [], "no temp file is left in the agent dir");
+	assert.deepEqual(readdirSync(f.wrapperDir), ["gentle-shell"], "no snapshot file is left in the wrapper dir");
+});
+
+test("uninstall keeps the wrapper and the symlink when the settings cannot be parsed", (t) => {
+	const f = fixture(t);
+	const root = f.addShim("h1");
+	assert.equal(f.run("install").status, 0);
+	const wrapperText = readFileSync(f.wrapper, "utf8");
+	writeFileSync(f.settings, "{\n");
+
+	const result = f.run("uninstall");
+
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "", "nothing is reported as removed");
+	assert.equal(readFileSync(f.wrapper, "utf8"), wrapperText, "the wrapper is still installed");
+	assert.equal(readlinkSync(f.link), root, "the symlink is still installed");
+	assert.equal(readFileSync(f.settings, "utf8"), "{\n", "the settings are byte-identical");
+});
+
+test("install replaces settings atomically, keeping a symlink and the file mode", (t) => {
+	const f = fixture(t);
+	f.addShim("h1");
+	const realDir = join(f.home, "dotfiles");
+	mkdirSync(realDir);
+	const real = join(realDir, "settings.json");
+	writeSettings(real, { packages: ["npm:pi-mcp-adapter"] });
+	chmodSync(real, 0o600);
+	symlinkSync(real, f.settings);
+	const inodeBefore = statSync(real).ino;
+
+	const result = f.run("install");
+
+	assert.equal(result.status, 0);
+	assert.ok(lstatSync(f.settings).isSymbolicLink(), "the settings.json symlink stays a symlink");
+	assert.equal(readlinkSync(f.settings), real, "the symlink keeps its target");
+	assert.equal(
+		readFileSync(real, "utf8"),
+		`${JSON.stringify(
+			{ packages: ["npm:pi-mcp-adapter", { source: f.link, extensions: ["!extensions/gentle-tps.ts"] }] },
+			null,
+			2,
+		)}\n`,
+		"the link target holds the new settings",
+	);
+	assert.equal(statSync(real).mode & 0o777, 0o600, "the previous file mode is kept");
+	assert.notEqual(statSync(real).ino, inodeBefore, "the file is replaced, not rewritten in place");
+	assert.deepEqual(tempEntries(dirname(f.settings)), [], "no temp file is left in the agent dir");
+	assert.deepEqual(tempEntries(realDir), [], "no temp file is left next to the link target");
 });
